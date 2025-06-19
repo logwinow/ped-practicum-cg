@@ -1,203 +1,584 @@
 <!DOCTYPE html>
 <html lang="ru">
-    <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-        <title>Разработка шейдеров в Three.js</title>
-        <link rel="stylesheet" href="css/site.css">
-        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    </head>
-    <body>
-        <div class="container my-5">
-            <div class="bg-light border rounded p-4 mb-4 text-center">
-                <h1 class="display-5 mb-0">
-                    Разработка шейдеров в three.js
-                    <img src="images/threejs_icon.png" style="height: 1.5em; vertical-align: middle; margin-left: 0.5em;">
-                </h1>
-            </div>
 
-            <div class="p-4 bg-light border rounded">
-                <!-- Изображение воды -->
-                <div class="text-center mb-4">
-                    <figure class="figure">
-                        <img src="images/water.png" class="img-fluid rounded shadow">
-                        <figcaption class="figure-caption text-center">
-                            Jerry Tessendorf "Simulating Ocean Water" &mdash; <a href="https://www.researchgate.net/publication/264839743_Simulating_Ocean_Water" target="_blank" rel="noopener">Подробнее</a>
-                        </figcaption>
-                    </figure>
-                </div>
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Разработка шейдеров в Three.js</title>
+    <link rel="stylesheet" href="css/site.css">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/default.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="highlight-languages/hlsl.min.js"></script>
+</head>
 
-                <p>
-                    На первый взгляд может показаться, что на картинке представлена фотография океана. 
-                    На самом же деле это известный рендер в реальном времени модели океана, сделанный Джери Тессендорфом (Jerry Tessendorf) в 2001 году.
-                </p>
-                <p>
-                    Его научная статья по моделированию поверхности воды в реальном времени настолько известна, что действительно трудно найти хоть одну статью по симуляции воды, не ссылающуюся прямо или косвенно на работу Джереми. 
-                    Значимость его работы заключается в том, что он объединил математические методы, физические модели и практики программирования в одном шейдере поверхности воды, в результате чего сейчас реалистичная вода в играх для нас, как игроков, не является чем-то особенным, а, скорее, очередным стандартом качества графики.
-                </p>
-                <p>
-                    В 2004 году в свет вышло первое издание <a href="https://developer.nvidia.com/gpugems/gpugems/part-i-natural-effects/chapter-1-effective-water-simulation-physical-models" target="_blank" rel="noopener">GPU Gems</a>, 
-                    в самой же первой главе которого рассказывается про физическую симуляцию поверхности воды с помощью шейдеров.
-                    Конечно, в библиографических ссылках есть работа Джереми Тессендорфа.
-                </p>
-                <div class="text-center mb-4">
-                    <figure class="figure">
-                        <img src="images/gpu_gems_cover.jpg" class="img-fluid rounded shadow" style="max-width: 25%;">
-                        <figcaption class="figure-caption text-center" style="max-width: 60%; margin: 0 auto;">
-                            GPU Gems - серия книг компании Nvidia, посвященная практикам разработки компьютерной графики. Всего вышло три части: GPU Gems 1 (2004), GPU Gems 2 (2005), GPU Gems 3 (2007) &mdash; <a href="https://developer.nvidia.com/gpugems/gpugems/contributors" target="_blank" rel="noopener">Подробнее</a>
-                        </figcaption>
-                    </figure>
-                </div>
-                <p>
-                    Имитация поверхности воды – это один из многочисленных примеров невероятных возможностей шейдеров. 
-                    Кроме того, шейдеры применяются не только для воссоздания физически корректной визуализации, но и для стилизации графики. 
-                    Однако в рамках компьютерного практикума мы бегло коснемся только самых вершин разработки шейдеров.
-                </p>
-                <p>
-                    Для начала нужно сказать, что за отрисовку информации отвечает графический процессор (GPU). 
-                    Все изображения, которые выводятся на экран – это результаты его работы. 
-                    Шейдер же – это компьютерная программа, предназначенная для исполнения графическим процессором.
-                </p>
-                <p>
-                    Отрисовка графики реализована через GPU, а не CPU из-за архитектурных особенностей графического процессора, которые 
-                    позволяют проводить вычисления с колоссальным объемом данных в многопоточном контексте.
-                </p>
-                <p>
-                    Для иллюстрации возьмем изображение размером 1024x1024 пикселей. Необходимо инвертировать цвет каждого пикселя. 
-                    Если проводить подобные вычисления на CPU, то для выполнения такой задачи можно пройтись по каждому пикселю, 
-                    вычислить обратный цвет и записать его обратно в пиксель текстуры. Итого больше миллиона итераций. 
-                    Если рассмотреть в контексте многопоточного программирования, то есть жесткое ограничение по относительно небольшому количеству ядер процессора. 
-                    Графический же процессор может содержать более 1000 ядер и эффективно разбивать вычисления на параллельные потоки. 
-                    К примеру, вычисления по такой текстуре могли быть разбиты на 8 потоков с блоками по 128x128 пикселей. 
-                    В результате, за считанные мгновения изображение инвертировано.
-                </p>
-                <p>
-                    GPU встраивается в материнскую карту, однако его мощности хватает только на отрисовку простых форм, таких как 
-                    окна приложений, просмотр видео и других повседневных задач. 
-                    Когда дело доходит до обработки сложной геометрии, процедурных визуальных эффектов или до генерации и обработки большого количества информации, 
-                    требуются вычислительные мощности видеокарты. В первую очередь это касается 
-                    видеоигр, игровых движков, программ для работы с графикой (GIMP, Blender и другие) и нейронных сетей.
-                </p>
-
-                <!-- Изображение системы частиц -->
-                <div class="text-center mb-4">
-                    <figure class="figure">
-                        <img src="images/never_engine_particles.png" class="img-fluid rounded shadow">
-                        <figcaption class="figure-caption text-center" style="max-width: 80%; margin: 0 auto;">
-                            Каждая песчинка в этом потоке - это 3D куб. Вся система работает в реальном времени более чем в 60 FPS благодаря шейдерам &mdash; <a href="https://www.youtube.com/watch?v=ahOfNgvQ93Q" target="_blank" rel="noopener">Подробнее</a>
-                        </figcaption>
-                    </figure>
-                </div>
-                
-                <p>
-                    Чтобы не затрагивать вопросы ограничений, в дальнейшем речь пойдет про шейдеры для GPU видеокарты. 
-                    Для начала рассмотрим, как происходит процесс отрисовки одного кадра 3D пространства.
-                </p>
-                <div>
-                    <p>
-                        Для отображения 3D сцены на экране должны быть учтены по крайней мере две составляющие:
-                    </p>
-                    <ol>
-                        <li>
-                            Сцена (объекты, которые составляют моделируемое пространство);
-                        </li>
-                        <li>
-                            Камера (наблюдатель);
-                        </li>
-                    </ol>
-                </div>
-
-                <!-- Изображение камеры -->
-                <div class="text-center mb-4">
-                    <figure class="figure">
-                        <img src="images/scene.png" class="img-fluid rounded shadow">
-                        <figcaption class="figure-caption text-center" style="max-width: 80%; margin: 0 auto;">
-                            Отрисовка сцены камерой &mdash; <a href="https://learnopengl.com/Guest-Articles/2021/Scene/Frustum-Culling" target="_blank" rel="noopener">Подробнее</a>
-                        </figcaption>
-                    </figure>
-                </div>
-
-                <p>
-                    Для каждого наблюдателя вызывается отрисовка объектов пространства шейдерами. При этом каждый объект представлен набором точек (вершин), которые составляют геометрическую сетку объекта. 
-                </p>
-
-                <!-- Изображение модели -->
-                <div class="text-center mb-4">
-                    <figure class="figure">
-                        <a href="https://malicki.artstation.com/store/03Bba/cartoon-male-character-bruce-base-mesh" target="_blank">
-                            <img src="images/model.png" class="img-fluid rounded shadow">
-                        </a>
-                    </figure>
-                </div>
-
-                <p>
-                    Вершины, соединяясь, образуют полигоны (чаще всего это треугольники), которые, в ходе обработки шейдером, образуют набор пикселей на экране. Такая последовательность выполняемых видеокартой этапов называется графическим конвейером. В результате его выполнения наблюдатель получает изображение сцены в 2D пространстве (иначе говоря, проекцию 3D сцены на плоскость).
-                </p>
-
-                <!-- Изображение графического конвейера -->
-                <div class="text-center mb-4">
-                    <figure class="figure">
-                        <img src="images/render_pipeline.png" class="img-fluid rounded shadow">
-                        <figcaption class="figure-caption text-center">
-                            Графический конвейер &mdash; <a href="https://www.linkedin.com/pulse/graphics-pipeline-insights-abhinav-tiwari-mr6cc" target="_blank" rel="noopener">Подробнее</a>
-                        </figcaption>
-                    </figure>
-                </div>
-
-                <p>
-                    В рамках компьютерного практикума рассмотрим только вершинный шейдер (Vertex shader) и фрагментный или пиксельный шейдер (Fragment shader).
-                </p>
-
-                <p>
-	                Вершинный шейдер (или вертексный) является обязательным обработчиком шейдера и выполняется для каждой вершины геометрии объекта (вертекса). Его задачей является преобразовать позицию вершины из объектных координат модели в координаты проекции на экран. Благодаря такому контролю над вершинами можно добавиться таких интересных эффектов, как смещение вершин (displacement).
-                </p>
-
-                <!-- Изображение displacement -->
-                <div class="text-center mb-4">
-                    <figure class="figure d-flex justify-content-center align-items-center gap-3 flex-wrap">
-                        <img src="images/mesh_displacement.png" class="img-fluid rounded shadow" style="max-width: 45%;">
-                        <img src="images/terrain_displacement.jpg" class="img-fluid rounded shadow" style="max-width: 45%;">
-                        <img src="images/terrain.png" class="img-fluid rounded shadow" style="max-width: 45%;">
-                        <figcaption class="figure-caption text-center w-100" style="max-width: 80%; margin: 0 auto;">
-                            Смещение вершин также применяется для создания ландшафта &mdash; <a href="https://io7m.com/documents/displacement2d/" target="_blank" rel="noopener">Подробнее</a>
-                        </figcaption>
-                    </figure>
-                </div>
-
-                <p>
-                    Фрагментный шейдер отвечает за то, какой цвет будет получен в результате работы шейдера в данной точке модели. Поскольку фрагментный шейдер выполняется позже вершинного, то геометрия модели уже преобразована в пространство проекции. Спроецированные полигоны модели разбиваются пикселями экрана в процессе растеризации. Элемент такого разбиения полигона и называется фрагментом.
-                </p>
-
-                <!-- Изображение растеризации -->
-                <div class="text-center mb-4">
-                    <figure class="figure">
-                        <img src="images/rasterization.png" class="img-fluid rounded shadow">
-                        <figcaption class="figure-caption text-center" style="max-width: 60%; margin: 0 auto;">
-                            В процессе растеризации спроецированные полигоны "разбиваются" по пикселям экрана. Каждая полученная часть разбиения - фрагмент полигона. &mdash; <a href="https://www.scratchapixel.com/lessons/3d-basic-rendering/rasterization-practical-implementation/overview-rasterization-algorithm.html" target="_blank" rel="noopener">Подробнее</a>
-                        </figcaption>
-                    </figure>
-                </div>
-
-                <p>
-                    После выполнения всех этапов графического конвейера и постобработки результирующего изображения, видеокарта выводит его на экран.
-                </p>
-
-                <!-- Изображение Toon shader -->
-                <div class="text-center mb-4">
-                    <figure class="figure d-flex justify-content-center align-items-center gap-3 flex-wrap">
-                        <img src="images/toon_shader.png" class="img-fluid rounded shadow" style="max-width: 45%;">
-                        <img src="images/pbr_rendering_output.jpg" class="img-fluid rounded shadow" style="max-width: 45%;">
-                        <figcaption class="figure-caption text-center" style="max-width: 60%; margin: 0 auto;">
-                            Слева - пример шейдера NPR (Toon shader), справа - шейдер PBR &mdash; <a href="https://roystan.net/articles/toon-shader/" target="_blank" rel="noopener">Подробнее</a>
-                        </figcaption>
-                    </figure>
-                </div>
-
-                <p>
-                    В рамках практической части компьютерного практикума попробуем реализовать несколько шейдеров самостоятельно, с помощью библиотеки Three.js.
-                </p>
-            </div>
+<body>
+    <div class="container my-5">
+        <div class="bg-light border rounded p-4 mb-4 text-center">
+            <h1 class="display-5 mb-0">
+                Разработка шейдеров в three.js
+                <img src="images/threejs_icon.png" style="height: 1.5em; vertical-align: middle; margin-left: 0.5em;">
+            </h1>
         </div>
-        <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-    </body>
+
+        <div class="p-4 bg-light border rounded">
+            <!-- Глава -->
+            <h2 class="mt-4 mb-3">1. Введение</h2>
+            <!-- Изображение воды -->
+            <div class="text-center mb-4">
+                <figure class="figure">
+                    <img src="images/water.png" class="img-fluid rounded shadow">
+                    <figcaption class="figure-caption text-center">
+                        Jerry Tessendorf "Simulating Ocean Water" &mdash; <a
+                            href="https://www.researchgate.net/publication/264839743_Simulating_Ocean_Water"
+                            target="_blank" rel="noopener">Подробнее</a>
+                    </figcaption>
+                </figure>
+            </div>
+            <p>
+                На первый взгляд может показаться, что на картинке представлена фотография океана.
+                На самом же деле это известный рендер в реальном времени модели океана, сделанный Джери Тессендорфом
+                (Jerry Tessendorf) в 2001 году.
+            </p>
+            <p>
+                Его научная статья по моделированию поверхности воды в реальном времени настолько известна, что
+                действительно трудно найти хоть одну статью по симуляции воды, не ссылающуюся прямо или косвенно на
+                работу Джереми.
+                Значимость его работы заключается в том, что он объединил математические методы, физические модели и
+                практики программирования в одном шейдере поверхности воды, в результате чего сейчас реалистичная вода в
+                играх для нас, как игроков, не является чем-то особенным, а, скорее, очередным стандартом качества
+                графики.
+            </p>
+            <p>
+                В 2004 году в свет вышло первое издание <a
+                    href="https://developer.nvidia.com/gpugems/gpugems/part-i-natural-effects/chapter-1-effective-water-simulation-physical-models"
+                    target="_blank" rel="noopener">GPU Gems</a>,
+                в самой же первой главе которого рассказывается про физическую симуляцию поверхности воды с помощью
+                шейдеров.
+                Конечно, в библиографических ссылках есть работа Джереми Тессендорфа.
+            </p>
+            <div class="text-center mb-4">
+                <figure class="figure">
+                    <img src="images/gpu_gems_cover.jpg" class="img-fluid rounded shadow" style="max-width: 25%;">
+                    <figcaption class="figure-caption text-center" style="max-width: 60%; margin: 0 auto;">
+                        GPU Gems - серия книг компании Nvidia, посвященная практикам разработки компьютерной графики.
+                        Всего вышло три части: GPU Gems 1 (2004), GPU Gems 2 (2005), GPU Gems 3 (2007) &mdash; <a
+                            href="https://developer.nvidia.com/gpugems/gpugems/contributors" target="_blank"
+                            rel="noopener">Подробнее</a>
+                    </figcaption>
+                </figure>
+            </div>
+            <p>
+                Имитация поверхности воды – это один из многочисленных примеров невероятных возможностей шейдеров.
+                Кроме того, шейдеры применяются не только для воссоздания физически корректной визуализации, но и для
+                стилизации графики.
+                Однако в рамках компьютерного практикума мы бегло коснемся только самых вершин разработки шейдеров.
+            </p>
+
+            <p>
+                Для начала нужно сказать, что за отрисовку информации отвечает графический процессор (GPU).
+                Все изображения, которые выводятся на экран – это результаты его работы.
+                Шейдер же – это компьютерная программа, предназначенная для исполнения графическим процессором.
+            </p>
+            <p>
+                Отрисовка графики реализована через GPU, а не CPU из-за архитектурных особенностей графического
+                процессора, которые позволяют проводить вычисления с колоссальным объемом данных в многопоточном контексте.
+            </p>
+            <p>
+                Для иллюстрации возьмем изображение размером 1024x1024 пикселей. Необходимо инвертировать цвет каждого
+                пикселя.
+                Если проводить подобные вычисления на CPU, то для выполнения такой задачи можно пройтись по каждому
+                пикселю,
+                вычислить обратный цвет и записать его обратно в пиксель текстуры. Итого больше миллиона итераций.
+                Если рассмотреть в контексте многопоточного программирования, то есть жесткое ограничение по
+                относительно небольшому количеству ядер процессора.
+                Графический же процессор может содержать более 1000 ядер и эффективно разбивать вычисления на
+                параллельные потоки.
+                К примеру, вычисления по такой текстуре могли быть разбиты на 8 потоков с блоками по 128x128 пикселей.
+                В результате, за считанные мгновения изображение инвертировано.
+            </p>
+            <p>
+                GPU встраивается в материнскую карту, однако его мощности хватает только на отрисовку простых форм,
+                таких как
+                окна приложений, просмотр видео и других повседневных задач.
+                Когда дело доходит до обработки сложной геометрии, процедурных визуальных эффектов или до генерации и
+                обработки большого количества информации,
+                требуются вычислительные мощности видеокарты. В первую очередь это касается
+                видеоигр, игровых движков, программ для работы с графикой (GIMP, Blender и другие) и нейронных сетей.
+            </p>
+            <!-- Изображение системы частиц -->
+            <div class="text-center mb-4">
+                <figure class="figure">
+                    <img src="images/never_engine_particles.png" class="img-fluid rounded shadow">
+                    <figcaption class="figure-caption text-center" style="max-width: 80%; margin: 0 auto;">
+                        Каждая песчинка в этом потоке - это 3D куб. Вся система работает в реальном времени более чем в
+                        60 FPS благодаря шейдерам &mdash; <a href="https://www.youtube.com/watch?v=ahOfNgvQ93Q"
+                            target="_blank" rel="noopener">Подробнее</a>
+                    </figcaption>
+                </figure>
+            </div>
+
+            <!-- Глава -->
+            <h2 class="mt-4 mb-3">2. Цвет</h2>
+            <p>
+                В жизни изображение состоит из цветов красок, благодаря которым можем различить объекты на фотографии, бумаге или хосте.
+                Цвет же в компьютерной графике - это набор данных, который представлен в виде вектора RGB (Red, Green,
+                Blue), где каждая компонента принимает значение от 0 до 1 и называется каналом. Если взять за размерность компоненты
+                1 байт (от 0 до 255), то общее количество возможных цветов составляет 256 * 256 * 256 = 16,777,216 цветов.
+            </p>
+
+            <p>
+                Однако помимо RGB каналов, в компьютерной графике есть еще и четвертый канал A - альфа канал или непрозрачность. 
+                В зависимости от значения альфа канала пиксель может быть полностью прозрачным (0), полупрозрачным (от 0 до 1 невключительно) или полностью непрозрачным (1).
+            </p>
+
+            <!-- Изображение цветов -->
+            <div class="text-center mb-4">
+                <figure class="figure">
+                    <img src="images/colors_table.jpg" class="img-fluid rounded shadow" style="max-width: 70%;">
+                    <figcaption class="figure-caption text-center" style="max-width: 80%; margin: 0 auto;">
+                        Таблица цветов в зависимости от значений компонентов R, G и B. Если смешать все краски, то получится черный цвет, в компьютерной
+                        же графике - белый &mdash; <a href="https://thebookofshaders.com/06/"
+                            target="_blank" rel="noopener">Подробнее</a>
+                    </figcaption>
+                </figure>
+            </div>
+
+            <p>
+                Цветом окрашиваются пиксели на экране, в результате чего мы наблюдаем изображение. Пиксель - это наименьшая
+                единица растрового изображения, для которого можно задать цвет. В физическом смысле, пиксель представлен набором из трех диодов на экране монитора, расположенных рядом:
+                первый светится красным, второй зеленым, третий синим. В зависимости от яркости каждого диода и получаются оттенки цвета. 
+                Попробуйте приблизиться к своему экрану и увидите мельчальшую решетку. Именно для ячеек этой решетки видокарта считает цвет.
+            </p>
+
+            <!-- Изображение пикселей близко -->
+            <div class="text-center mb-4">
+                <figure class="figure">
+                    <img src="images/closeup_of_pixels.jfif" class="img-fluid rounded shadow">
+                    <figcaption class="figure-caption text-center" style="max-width: 80%; margin: 0 auto;">
+                        Пиксели вблизи &mdash; <a href="https://en.wikipedia.org/wiki/Pixel"
+                            target="_blank" rel="noopener">Подробнее</a>
+                    </figcaption>
+                </figure>
+            </div>
+
+            <p>
+                
+                
+            </p>
+
+            <!-- Глава -->
+            <h2 class="mt-4 mb-3">3. Графический конвейер</h2>
+            <div>
+                <p>
+                    Прежде чем приступить к написанию собственного шейдера, необхоимо иметь представление о том, как происходит отрисовка объектов и
+                    какие этапы есть в этом процессе, на которые можно повлиять.
+                </p>
+                <p>
+                    Для отображения 3D сцены на экране должны быть учтены по крайней мере две составляющие:
+                </p>
+                <ol>
+                    <li>
+                        Сцена (объекты, которые составляют моделируемое пространство);
+                    </li>
+                    <li>
+                        Камера (наблюдатель);
+                    </li>
+                </ol>
+            </div>
+            <!-- Изображение камеры -->
+            <div class="text-center mb-4">
+                <figure class="figure">
+                    <img src="images/scene.png" class="img-fluid rounded shadow">
+                    <figcaption class="figure-caption text-center" style="max-width: 80%; margin: 0 auto;">
+                        Отрисовка сцены камерой &mdash; <a
+                            href="https://learnopengl.com/Guest-Articles/2021/Scene/Frustum-Culling" target="_blank"
+                            rel="noopener">Подробнее</a>
+                    </figcaption>
+                </figure>
+            </div>
+            <p>
+                Для каждого наблюдателя вызывается отрисовка объектов пространства шейдерами. При этом каждый объект
+                представлен набором точек (вершин), которые составляют геометрическую сетку объекта.
+            </p>
+            <!-- Изображение модели -->
+            <div class="text-center mb-4">
+                <figure class="figure">
+                    <a href="https://malicki.artstation.com/store/03Bba/cartoon-male-character-bruce-base-mesh"
+                        target="_blank">
+                        <img src="images/model.png" class="img-fluid rounded shadow">
+                    </a>
+                </figure>
+            </div>
+            <p>
+                Вершины, соединяясь, образуют полигоны (чаще всего это треугольники), которые, в ходе обработки
+                шейдером, образуют набор пикселей на экране. Такая последовательность выполняемых видеокартой этапов
+                называется графическим конвейером. В результате его выполнения наблюдатель получает изображение сцены в
+                2D пространстве (иначе говоря, проекцию 3D сцены на плоскость).
+            </p>
+            <!-- Изображение графического конвейера -->
+            <div class="text-center mb-4">
+                <figure class="figure">
+                    <img src="images/render_pipeline.png" class="img-fluid rounded shadow">
+                    <figcaption class="figure-caption text-center">
+                        Графический конвейер &mdash; <a
+                            href="https://www.linkedin.com/pulse/graphics-pipeline-insights-abhinav-tiwari-mr6cc"
+                            target="_blank" rel="noopener">Подробнее</a>
+                    </figcaption>
+                </figure>
+            </div>
+            <p>
+                В рамках компьютерного практикума рассмотрим только вершинный шейдер (Vertex shader) и фрагментный или
+                пиксельный шейдер (Fragment shader).
+            </p>
+
+            <!-- Глава -->
+            <h2 class="mt-4 mb-3">4. Вершинный и фрагментный шейдеры</h2>
+            <p>
+                Вершинный шейдер (или вертексный) является обязательным обработчиком шейдера и выполняется для каждой
+                вершины геометрии объекта (вертекса). Его задачей является преобразовать позицию вершины из объектных
+                координат модели в координаты проекции на экран. Благодаря такому контролю над вершинами можно
+                добавиться таких интересных эффектов, как смещение вершин (displacement).
+            </p>
+            <!-- Изображение displacement -->
+            <div class="text-center mb-4">
+                <figure class="figure d-flex justify-content-center align-items-center gap-3 flex-wrap">
+                    <img src="images/mesh_displacement.png" class="img-fluid rounded shadow" style="max-width: 45%;">
+                    <img src="images/terrain_displacement.jpg" class="img-fluid rounded shadow" style="max-width: 45%;">
+                    <img src="images/terrain.png" class="img-fluid rounded shadow" style="max-width: 45%;">
+                    <figcaption class="figure-caption text-center w-100" style="max-width: 80%; margin: 0 auto;">
+                        Смещение вершин также применяется для создания ландшафта &mdash; <a
+                            href="https://io7m.com/documents/displacement2d/" target="_blank"
+                            rel="noopener">Подробнее</a>
+                    </figcaption>
+                </figure>
+            </div>
+            <p>
+                Фрагментный шейдер отвечает за то, какой цвет будет получен в результате работы шейдера в данной точке
+                модели. Поскольку фрагментный шейдер выполняется позже вершинного, то геометрия модели уже преобразована
+                в пространство проекции. Спроецированные полигоны модели разбиваются пикселями экрана в процессе
+                растеризации. Элемент такого разбиения полигона и называется фрагментом.
+            </p>
+            <!-- Изображение растеризации -->
+            <div class="text-center mb-4">
+                <figure class="figure">
+                    <img src="images/rasterization.png" class="img-fluid rounded shadow">
+                    <figcaption class="figure-caption text-center" style="max-width: 60%; margin: 0 auto;">
+                        В процессе растеризации спроецированные полигоны "разбиваются" по пикселям экрана. Каждая
+                        полученная часть разбиения - фрагмент полигона. &mdash; <a
+                            href="https://www.scratchapixel.com/lessons/3d-basic-rendering/rasterization-practical-implementation/overview-rasterization-algorithm.html"
+                            target="_blank" rel="noopener">Подробнее</a>
+                    </figcaption>
+                </figure>
+            </div>
+            <p>
+                После выполнения всех этапов графического конвейера и постобработки результирующего изображения,
+                видеокарта выводит его на экран.
+            </p>
+            <!-- Изображение Toon shader -->
+            <div class="text-center mb-4">
+                <figure class="figure d-flex justify-content-center align-items-center gap-3 flex-wrap">
+                    <img src="images/toon_shader.png" class="img-fluid rounded shadow" style="max-width: 45%;">
+                    <img src="images/pbr_rendering_output.jpg" class="img-fluid rounded shadow" style="max-width: 45%;">
+                    <figcaption class="figure-caption text-center" style="max-width: 60%; margin: 0 auto;">
+                        Слева - пример шейдера NPR (Toon shader), справа - шейдер PBR &mdash; <a
+                            href="https://roystan.net/articles/toon-shader/" target="_blank"
+                            rel="noopener">Подробнее</a>
+                    </figcaption>
+                </figure>
+            </div>
+
+            <!-- Глава -->
+            <h2 class="mt-4 mb-3">5. Основы three.js</h2>
+            <p>
+                В рамках практической части компьютерного практикума попробуем реализовать несколько шейдеров
+                самостоятельно с помощью библиотеки three.js. Для начала рассмотрим основы работы с этой библиотекой.
+            </p>
+            <p>
+                three.js - это библиотека JavaScript, которая позволяет создавать 3D графику в веб-браузере посредством работы с WebGL.
+                three.js предоставляет API для работы с 3D сценами, камерами, освещением, материалами и шейдерами. Удобно работать с графическим API
+                через three.js, так как она абстрагирует многие сложности, связанные с низкоуровневыми деталями WebGL, тем более, что в последнее время
+                набирает популярность использование WebGPU взамен WebGL, так как WebGPU предоставляет более высокую производительность и доступ к современным возможностям графических процессоров.
+                Использование three.js гарантирует возможность переключения между WebGL и WebGPU без необходимости переписывать код или с минимальной адаптацией, что
+                позволяет разработчикам сосредоточиться на создании контента, а не на технических деталях реализации.
+            </p>
+            <p>
+                Приложения на three.js имеют определенную структуру, которая включает в себя создание сцены, камеры, рендерера и добавление объектов на сцену.
+            </p>
+            <!-- Изображение структуры three.js -->
+            <div class="text-center mb-4">
+                <figure class="figure">
+                    <img src="images/threejs-structure.svg" class="img-fluid rounded shadow">
+                    <figcaption class="figure-caption text-center" style="width: 768px; margin: 0 auto;">
+                        Структура приложения на three.js &mdash; <a
+                            href="https://threejs.org/manual/#en/fundamentals"
+                            target="_blank" rel="noopener">Подробнее</a>
+                    </figcaption>
+                </figure>
+            </div>
+            <p>
+                Основными элементами выступают:
+            </p>
+            <ul>
+                <li>
+                    Сцена (Scene) - это контейнер для всех объектов, которые будут отображаться в 3D пространстве.
+                </li>
+                <li>
+                    Камера (Camera) - это наблюдатель, для которого отображается сцена.
+                </li>
+                <li>
+                    Геометрия (Geometry) - это форма объекта, которая определяет его вершины и полигоны.
+                </li>
+                <li>
+                    Материал (Material) - объект, определяющий свойства поверхности объекта, такие как цвет, текстура, отражение и другие.
+                    Материал использует шейдер для отображения объекта, поэтому о нем можно думать, как о контейнере для шейдера и различных параметров,
+                    которые должны быть переданы в шейдер.
+                </li>
+                <li>
+                    Сетка (Mesh) - это объект, который состоит из геометрии и материала и который определяет внешний вид объекта.
+                </li>
+                <li>
+                    Отрисовщик (Renderer) - это компонент, который отвечает за отрисовку сцены на экране. Пожалуй, это самый важный элемент в структуре,
+                    так как именно он связывает сцену и камеру и обеспечивает визуализацию.
+                </li>
+            </ul>
+
+            <!-- Глава -->
+            <h2 class="mt-4 mb-3">6. Материал MeshNormalMaterial и unlit шейдеры</h2>
+            <p>
+                Ниже приведен пример визуализации вращающегося куба, взятый из <a href="https://github.com/mrdoob/three.js">GitHub three.js</a> с комментариями.
+            </p>
+            <iframe src="https://codesandbox.io/embed/w34lvm?view=split&module=App.js&fontsize=12"
+                style="width:100%; height: 500px; border:0; border-radius: 4px; overflow:hidden;"
+                title="objective-mendeleev-w34lvm"
+                allow="accelerometer; ambient-light-sensor; camera; encrypted-media; geolocation; gyroscope; hid; microphone; midi; payment; usb; vr; xr-spatial-tracking"
+                sandbox="allow-forms allow-modals allow-popups allow-presentation allow-same-origin allow-scripts"
+            ></iframe>
+            <p>
+                В этом примере для нас главным является создание материала при помощи функции MeshNormalMaterial. Данная функция создает материал и назначет ему шейдер,
+                который раскрашивает фрагменты объекта в нормали вершин. Как так получается, что цвет получается из вектора? Как уже говорилось ранее, что цвет в компьютерной графике 
+                может быть представлен в виде набора компонентов RGB в виде color = (r, g, b), где каждая компонента принимает значение от 0 до 1. 
+                Поскольку такая запись по сути обозначает вектор, то ничего не мешает записать в цвет направелние вектора.
+                В <a href='https://github.com/mrdoob/three.js/blob/52288af7c30f172bd85b0a3806a206356bbdc55f/src/materials/nodes/MeshNormalNodeMaterial.js#L61'>исходном коде</a> материала видим строчку:<br>
+            </p>
+            <pre><code class="language-javascript">diffuseColor.assign(colorSpaceToWorking(vec4(directionToColor(transformedNormalView), opacityNode), SRGBColorSpace));</code></pre>
+            <p>
+                Диффузный цвет (diffuse color) - это цвет, который будет применен к поверхности объекта. Это одно из стандартных названий для цвета в шейдерах.
+                Также отображаемый цвет могут называть базовым (base) base или альбедо (albedo).
+            </p>
+            <p>
+                В данном случае, в поле SRGBColorSpace (цвет фрагмента) объекта diffuseColor записывается преобразованное направление нормали 
+                (ограниченное значениями от 0 до 1). Мы видим, что вызывается функция vec4, которая создает четырехкомпонентный вектор. В качестве первых трех
+                будет записана преобразованная нормаль, в качестве четвертного записывается непрозрачность (0 - прозрачный, 1 - непрозрачный).
+                Далее полученный вектор преобразуется в рабочее цветовое пространство, в результате чего получаем цвет на экране.
+            </p>
+            <p>
+                Также можно обратить внимание на то, что цвета сторон куба меняются в зависимости от угла обзора. Это происходит потому, что transformedNormalView
+                содержат нормаль, уже преобразованное в пространство камеры.
+            </p>
+            <p>
+                Как можно заметить, данный шейдер не зависит от освещения. Такой тип шейдеров называется unlit или неосвещенные. Соответственно, 
+                шейдеры, взаимодействующие с освещением, называются lit или освещенные.
+                Начать же изучение языка программрованя шейдеров проще всего будет именно с неосвещенного типа.
+            </p>
+
+            <!-- Глава -->
+            <h2 class="mt-4 mb-3">7. GLSL</h2>
+            <p>
+                GLSL (OpenGL Shading Language) - это язык программирования шейдеров. По синтаксису он похож на C, но имеет свои особенности,
+                которые оптимизируют работу с графикой. Поскольку three.js базируется на WebGL, то шейдеры в three.js пишутся на GLSL, 
+                однако существуют и другие языки программирования шейдеров.
+            </p>
+
+            <ul>
+                <li>
+                    В игровом движке Unity существует специальная "обертка" для шейдеров, называемая ShaderLab, которая 
+                    упрощает процесс написания шейдеров и передачи данных, а также служит каркасом для интерфейса материала.
+                    В ShaderLab можно делать вставки кода на HLSL (High-Level Shading Language) или CG (C for Graphics), которые 
+                    также являются языками программирования шейдеров.
+                </li>
+                <pre><code class="language-hlsl">Shader "Custom/UnlitColor"
+{
+    Properties
+    {
+        _Color ("Color", Color) = (1,1,1,1)
+    }
+    SubShader
+    {
+        Tags { "RenderType"="Opaque" }
+
+        Pass
+        {
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+
+            struct appdata
+            {
+                float4 vertex : POSITION;
+            };
+
+            struct v2f
+            {
+                float4 pos : SV_POSITION;
+            };
+
+            fixed4 _Color;
+
+            v2f vert (appdata v)
+            {
+                v2f o;
+                o.pos = UnityObjectToClipPos(v.vertex);
+                return o;
+            }
+
+            fixed4 frag (v2f i) : SV_Target
+            {
+                return _Color;
+            }
+            ENDCG
+        }
+    }
+}</code></pre>
+                <li>
+                    Игровой движок Godot использует свой язык программирования шейдеров, называемый Godot Shading Language, базирующийся на GLSL и оттого похожий на него.
+                    На Godot Shading Language уже написано множество шейдеров, исходный код которых можно посмотреть на официальном сайте <a href="https://godotshaders.com/shader/">Godot Shaders</a>.
+                    Если разобраться в синтаксисе GLSL, то вполне можно "читать" шейдеры, написанные на Godot Shading Language и транспилировать их
+                    в GLSL для использования в three.js.
+                </li>
+                <pre><code class="glsl">shader_type canvas_item;
+
+uniform vec4 color : source_color = vec4(1.0, 1.0, 1.0, 1.0);
+
+void fragment() {
+    COLOR = color;
+}</code></pre>
+                <!-- Изображение шейдера highlight -->
+                <div class="text-center mb-4">
+                    <figure class="figure">
+                        <img src="https://godotshaders.com/wp-content/uploads/2021/01/shine_shader.gif" class="img-fluid rounded shadow">
+                        <figcaption class="figure-caption text-center" style="width: 768px; margin: 0 auto;">
+                            Шейдер Item Highlighter, созданный пользователем OzMaister на языке Godot Shading Language &mdash; <a
+                                href="https://godotshaders.com/shader/collectable-item-shining-highlight/"
+                                target="_blank" rel="noopener">Подробнее</a>
+                        </figcaption>
+                    </figure>
+                </div>
+            </ul>
+
+            <p>
+                Такого разнообразия языков программирования шейдеров не стоит пугаться, так как в значительной степени
+                все они похожи, используют общие концепции и принципы. В наших же шейдерах для three.js мы будем использовать GLSL.
+            </p>
+
+            <p>
+                Чтобы создать материал с пользовательскими шейдерами в three.js, необходимо использовать материал ShaderMaterial. 
+            </p>
+            
+            <pre><code class="language-javascript">const material = new THREE.ShaderMaterial({
+    vertexShader: vertexShader // string,
+    fragmentShader: fragmentShader // string,
+    uniforms: {
+        uniformName: { 
+            value: uniformValue // any supported by GLSL
+        }
+    },
+});</code></pre>
+            <p>
+                В качестве параметра конструктора передается объект со свойствами: vertexShader - код вершинного шейдера, 
+                fragmentShader - код фрагментного шейдера, uniforms - переменные, значения которых которые буду переданы в шейдер. 
+                uniforms является обязательным свойством только если вершинный или фрагментный шейдер ожидают каких-либо переменных.
+            </p>
+
+            <p>Для примера создадим два шейдера в отдельных файлах и передадим их текст в ShaderMaterial. Вершинный шейдер будет просто
+                преобразовывать вершины из объектых координат модели в координаты проекции камеры, а фрагментный - выводить белый цвет.
+            </p>
+
+            <!-- Plain color -->
+            <iframe src="https://codesandbox.io/embed/gtr74g?view=split&module=%2Fshaders%2FvertexShader.glsl&fontsize=12"
+                style="width:100%; height: 500px; border:0; border-radius: 4px; overflow:hidden;"
+                title="xenodochial-tdd-gtr74g"
+                allow="accelerometer; ambient-light-sensor; camera; encrypted-media; geolocation; gyroscope; hid; microphone; midi; payment; usb; vr; xr-spatial-tracking"
+                sandbox="allow-forms allow-modals allow-popups allow-presentation allow-same-origin allow-scripts"
+            ></iframe>
+
+            <p>
+                С одной стороны, ничего интересного не видно - просто вращается полностью белый куб без какого-либо освещения. С другой, пожалуй,
+                используемые здесь шейдеры - это самые базовые шейдеры, которые можно написать. Рассмотри их подробнее. Начем с вершинного шейдера:
+            </p>
+
+            <pre><code class="glsl">void main() {
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}</code></pre>
+
+            <p>
+                Функция main() - это точка входа в как в вершинном, так и в фрагментном шейдере. Она ничего не принимает и ничего не возвращает,
+                вместо этого она записывает результат в глобальную переменную gl_Position.
+            </p>
+            <p>
+                Как уже обсуждалось ранее, вершинный шейдер выполняется для каждоый вершины геометрии и его целью является преобразовать
+                входную позицию вершины в координаты проекции камеры. В данном случае, входная позиция вершины - это вершина геометрии куба в объектном прострастве, 
+                которая передается в зарезервированную переменную position. Для того, чтобы выполнить преобразование, необходимо воспользоваться
+                линейной алгеброй и перемножить позицию вершины на матрицу преобразования в мировое пространство, результат умножить на матрицу преобразования в пространство камеры,
+                уже после чего умножить на матрицу проекции камеры.
+            </p>
+
+            <pre><code class="glsl">gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(position, 1.0);</code></pre>
+
+            <p>
+                Но для упрощения синтаксиса результат умножения modelMatrix и viewMatrix вынесен в одну переменную modelViewMatrix
+                и передается для каждого вершинного шейдера на уровне WebGL (<a href="https://threejs.org/docs/#api/en/renderers/webgl/WebGLProgram">Подробнее про передачу стандартных переменных</a>).
+            </p>
+
+            <p>
+                Последний неосвещенный момент, это почему вершина записывается в виде vec4, а не vec3, как ожидается? Дело в так называемых гомогенных координатах,
+                тема которых выходит за рамки данного компьютерного практикума и уходит дальше в линейную алгебру (<a href="https://www.youtube.com/watch?v=o-xwmTODTUI">Подробнее</a>).
+                Сейчас для нас это не так важно, потому что дальше мы будем работать только с фрагментным шейдером. Однако вершинные шейдеры, геомтрические и шейдеры тесселяции
+                позволяют создавать удивительные вещи силами GPU, как, например, генерация травы из пространства точек.
+            </p>
+
+            <!-- Geometry shader grass -->
+            <div class="text-center mb-4">
+                <figure class="figure">
+                    <img src="images/geometry_shader_grass.png" class="img-fluid rounded shadow">
+                    <figcaption class="figure-caption text-center" style="width: 768px; margin: 0 auto;">
+                        Отрисовка травы с помощью геометрического и вершинного шейдера &mdash; <a
+                            href="https://www.youtube.com/watch?v=YghAbgCN8XA"
+                            target="_blank" rel="noopener">Подробнее</a>
+                    </figcaption>
+                </figure>
+            </div>
+
+            <p>
+                В фрагментном шейдере мы просто задает цвет фрагмента и записываем его в глобальную переменную gl_FragColor. 
+                Цвет задается для всех четырех каналов, но так как у нас не объявлены специальные дерективы, отвечающие за прозрачность
+                фрагментов, то изменение альфа канала ни на что не повлияет. Вы можете попробовать поизменять значения в каналах r, g, b и
+                посмотреть, как будет меняться цвет куба.
+            </p>
+
+            <pre><code class="glsl">void main() {
+  gl_FragColor = vec4(1, 1, 1, 1);
+}</code></pre>
+            <!-- Глава -->
+            <h2 class="mt-4 mb-3">8. Импорт модели</h2>
+            <p>
+                Попробуем сделать сцену интереснее - добавим собственную геометрию и назначим на нее текстуру. Скачаем
+                <a href="https://sketchfab.com/3d-models/book-open-bcc69dacd1bc4eadaf4b9fc0d6e2430b">со Sketchfab</a>
+                понравившуюся модель и загрузим ее в проект. Нам понадобится чистая модель без анимаций и всего
+                одна текстура с базовым цветом.
+            </p>
+            <iframe src="https://codesandbox.io/embed/yp3p2x?view=split&module=%2FApp.js&fontsize=12"
+                style="width:100%; height: 500px; border:0; border-radius: 4px; overflow:hidden;"
+                title="Book"
+                allow="accelerometer; ambient-light-sensor; camera; encrypted-media; geolocation; gyroscope; hid; microphone; midi; payment; usb; vr; xr-spatial-tracking"
+                sandbox="allow-forms allow-modals allow-popups allow-presentation allow-same-origin allow-scripts"
+            ></iframe>
+        </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+      hljs.highlightAll();
+    </script>
+</body>
+
 </html>
