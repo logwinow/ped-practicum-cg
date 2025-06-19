@@ -563,16 +563,164 @@ void fragment() {
             <h2 class="mt-4 mb-3">8. Импорт модели</h2>
             <p>
                 Попробуем сделать сцену интереснее - добавим собственную геометрию и назначим на нее текстуру. Скачаем
-                <a href="https://sketchfab.com/3d-models/book-open-bcc69dacd1bc4eadaf4b9fc0d6e2430b">со Sketchfab</a>
-                понравившуюся модель и загрузим ее в проект. Нам понадобится чистая модель без анимаций и всего
+                со Sketchfab <a href="https://sketchfab.com/3d-models/book-open-bcc69dacd1bc4eadaf4b9fc0d6e2430b">понравившуюся модель</a> и загрузим ее в проект. Нам понадобится чистая модель без анимаций и всего
                 одна текстура с базовым цветом.
             </p>
+
             <iframe src="https://codesandbox.io/embed/yp3p2x?view=split&module=%2FApp.js&fontsize=12"
                 style="width:100%; height: 500px; border:0; border-radius: 4px; overflow:hidden;"
                 title="Book"
                 allow="accelerometer; ambient-light-sensor; camera; encrypted-media; geolocation; gyroscope; hid; microphone; midi; payment; usb; vr; xr-spatial-tracking"
                 sandbox="allow-forms allow-modals allow-popups allow-presentation allow-same-origin allow-scripts"
             ></iframe>
+
+            <p>
+                Для импорта модедлей в three.js использвуются специальные загрузчики, наследники класса Loader. Я использую модель
+                с расширением fbx, поэтому импортирую FBXLoader и создам его экземпляр, однако для многих других форматов также можно
+                найти загрузчик в <a href="https://github.com/mrdoob/three.js/tree/master/examples/jsm/loaders">официальном репозитории three.js</a>.
+            </p>
+
+            <pre><code class="language-javascript">import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader.js";
+...
+const modelLoader = new FBXLoader();</code></pre>
+
+            <p>
+                Далее необходимо загрузить модель из локальных файлов проекта или по url.
+            </p>
+
+            <pre><code class="language-javascript">modelLoader.load(modelUrl, (group) => {
+  const object = group.children[0];
+  object.scale.set(0.01, 0.01, 0.01);
+  object.position.set(0, 0, 0);
+  object.rotation.set(0, 0, MathUtils.degToRad(90));
+  object.material = material;
+
+  scene.add(object);
+});</code></pre>
+
+            <p>
+                В одной модели формата fbx может быть несколько объектов (мешей), которые могут быть использованы
+                в 3D сцене независимо друг от друга. Поэтому входным параметром лямбда-функции успешной загрузки
+                является группа, из которой нужно взять первый меш, так как в данном случае он единственный.
+                Полученный меш располагаем на сцене, масштабируем, перемещаем, вращаем и назначаем материал, созданный ранее.
+            </p>
+
+            <p>
+                Если бы мы остановились на этом шаге, то получили бы полностью белую книгу, так как шейдер никак не обрабатывает
+                текстуру. Чтобы это исправить, для начала необходимо текстуру загрузить. Аналогично моделе, текстура загружается
+                через специальный загрузчик TextureLoader. После загрузки текстуру необходимо передать в шейдер.
+            </p>
+
+            <pre><code class="language-javascript">const textureLoader = new THREE.TextureLoader();
+const texture = textureLoader.load(textureUrl);
+
+const material = new THREE.ShaderMaterial({
+  vertexShader,
+  fragmentShader,
+  uniforms: {
+    mainTex: {
+      value: texture,
+    },
+  },
+});</code></pre>
+
+        <p>
+            Пока что шейдер все еще выводит белый цвет и передача параметра игнорируется, так как шейдер его не ожидает.
+            Чтобы шейдер запрашивал переменную, нужно ее объявить как uniform. В данном случае, мы ожидаем текстуру,
+            тип которой sampler2D - это ссылка, которая указывает на загруженную в видеопамять текстуру и с помощью 
+            которой можно читать ее пиксели.
+        </p>
+
+        <pre><code class="glsl">uniform sampler2D mainTex;
+
+void main() {
+  gl_FragColor = texture2D(mainTex, uv);
+}</code></pre>
+        
+        <p>
+            С помощью стандартной функции GLSL texture2D можно считать из двухмерной текстуы пиксель по заданной координате,
+            которую в компьютерной графике принято называть UV. Однако в таком виде шейдер не скомпилируется. Причина в том,
+            что в графическом конвейере параметры геометрии, такие как позиция вершины, нормаль, UV координаты, цвет вершины
+            и другие передаются сверху вниз. В нашем случае, от вершинного шейдера к фрагментному. Такие переменные объявляются 
+            с аттрибутом attribute и уникальны для каждой вершины. Переменные с аттрибутами uniform общие для всех вершин и всех фрагментов. 
+            Для того, чтобе передать UV координату от вершинного шейдера к фрагментному, нужно объявить переменную с аттрибутом varying и записать в него значение. 
+            Такие переменные уникальные для каждого фрагмента. В них можно записать любые нужные данные.
+        </p>
+
+        <pre><code class="glsl">varying vec2 v2f_uv;
+
+void main() {
+  v2f_uv = uv; // переменная uv передается в вершинный шейдер средствами WebGL.
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}</code></pre>
+
+        <p>
+            Теперь изменим код фрагментного шейдера:
+        </p>
+
+        <pre><code class="glsl">uniform sampler2D mainTex;
+varying vec2 v2f_uv;
+
+void main() {
+  gl_FragColor = texture2D(mainTex, v2f_uv);
+}</code></pre>
+
+        <p>
+            Теперь текстура коорректно отображается на поверхности книги.
+        </p>
+
+        <p>
+            На этом моменте остановимся и зададимся вопросом: "Если position - это аттрибут вершины, значит и uv аттрибут вершины. 
+            Почему тогда текстура отображается корректно на всей поверхности объекта, а не только в точках вершин? Кроме того,
+            откуда мы знаем, как именно должна ложится текстура на поверхность объекта?"
+        </p>
+
+        <p>
+            Чтобы ответить на этот вопрос, нужно понимать два момента. Первое - в процессе создания моделей существует этап
+            создания UV развертки. Это означает, что художник разворачивает на плоскости всю геометрию (ссылки на вершины)
+            и поверх такой разветки рисует текстуру. Часто этап автоматизируется специальным инструментарием графических редакторов.
+        </p>
+
+        <!-- Изображение UV -->
+        <div class="text-center mb-4">
+            <figure class="figure d-flex justify-content-center align-items-center gap-3 flex-wrap">
+                <a href="https://za.pinterest.com/metafus/3dsmax-scripts/"><img src="images/uv_stages.jpg" class="img-fluid rounded shadow" style="max-width: 75%;"></a>
+                <a href="https://www.pinterest.com/superchak/3d-human-uv/"><img src="images/uv_texture.jpg" class="img-fluid rounded shadow" style="max-width: 75%;"></a>
+                <figcaption class="figure-caption text-center" style="margin: 0 auto;">
+                    UV развертка &mdash; <a
+                        href="httpshttps://render.ru/ru/MFG/post/24837" target="_blank"
+                        rel="noopener">Подробнее</a>
+                </figcaption>
+            </figure>
+        </div>
+
+        <p>
+            Второе - uv привязывается к вершинам, да, но для каждого фрагмента полигона значение UV координат интерполируется по вершинам полигона.
+            То есть в действительности, значение UV, которое передается в v2f_uv в фрагментный шейдер, не то же самое, что в вершинном шейдере,
+            а интерполированное по значениям этой переменной других вершин полигона.
+        </p>
+
+        <!-- Изображение UV интерполяции -->
+        <div class="text-center mb-4">
+            <figure class="figure">
+                <img src="images/uv_interpolation.png" class="img-fluid rounded shadow">
+                <figcaption class="figure-caption text-center" style="margin: 0 auto;">
+                    UV задано для трех точек полигона, но интерполируется по всем фрагментам &mdash; <a
+                        href="https://www.geeks3d.com/20130514/opengl-interpolation-qualifiers-glsl-tutorial/"
+                        target="_blank" rel="noopener">Подробнее про интерполяцию и ее настройки</a>
+                </figcaption>
+            </figure>
+        </div>
+
+        <!-- Глава -->
+        <h2 class="mt-4 mb-3">9. Dissolve shader</h2>
+        
+        <p>
+            Теперь, когда мы разобрались с самыми базовыми принципами, попробуем создать собственный шейдер, имитирующий
+            "растворение" объекта в пространстве. Такие шейдеры называются Dissolve - это не специальный этап в графическом 
+            конвейере, это просто называние для эффекта.
+        </p>
+
         </div>
     </div>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
