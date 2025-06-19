@@ -721,7 +721,273 @@ void main() {
             конвейере, это просто называние для эффекта.
         </p>
 
+        <iframe src="https://codesandbox.io/embed/rmvych?view=split&module=%2FApp.js&fontsize=12"
+            style="width:100%; height: 500px; border:0; border-radius: 4px; overflow:hidden;"
+            title="Dissolve Shader"
+            allow="accelerometer; ambient-light-sensor; camera; encrypted-media; geolocation; gyroscope; hid; microphone; midi; payment; usb; vr; xr-spatial-tracking"
+            sandbox="allow-forms allow-modals allow-popups allow-presentation allow-same-origin allow-scripts"
+        ></iframe>
+
+        <p>
+            Для имитации растворения нам потребуется текстура шума, которую можно взять из <a href="https://opengameart.org/content/700-noise-textures">бесплатного архива</a>.
+            Для примера возьмем классический шум Перлина.
+        </p>
+
+        <!-- Изображение шума -->
+        <div class="text-center mb-4">
+            <figure class="figure">
+                <img src="files/noise.png" class="img-fluid rounded shadow">
+            </figure>
         </div>
+
+        <p>
+            Загрузим шум в проект и передадим в шейдер. Поскольку UV координаты имеют значения от 0 до 1, то мы можем извлекать
+            цвет шума для той же координаты, что получаем цвет текстуры.
+        </p>
+
+        <pre><code class="glsl">uniform sampler2D mainTex;
+uniform sampler2D noiseTex;
+varying vec2 v2f_uv;
+
+void main() {
+  vec4 color = texture2D(mainTex, v2f_uv);
+  float noise = texture2D(noiseTex, v2f_uv).r;
+
+  gl_FragColor = color;
+}</code></pre>
+
+        <p>
+            Поскольку шум используется монохромный в градациях серого, то все каналы цвета имеют одинаковое значение,
+            поэтому можно извлечь только один канал и дальше работать с его значением.
+        </p>
+
+        <p>
+            В GLSL для доступа к компоненте вектора можно использовать не только стандартные X, Y, Z, W, но еще R, G, B, A - 
+            удобно для цвета, - а также S, T, P, Q, что иногда используют для работы с текстурами. Однако по сути <a href="https://thebookofshaders.com/06/?lan=ru">это одно и то же</a>.
+        </p>
+
+        <pre><code class="glsl">vec4 vector;
+vector[0] = vector.r = vector.x = vector.s;
+vector[1] = vector.g = vector.y = vector.t;
+vector[2] = vector.b = vector.z = vector.p;
+vector[3] = vector.a = vector.w = vector.q;</code></pre>
+
+        <p>
+            Будем отсекать цвет текстуры, который находится в области значения шума, ниже заданного. Заданное значение
+            threshold будем передавать в шейдер как uniform. Для отсечения цвета можно использовать логическую конструкцию
+            if-else, однако для этих целей уже есть встроенная функция <a href="https://thebookofshaders.com/glossary/?search=step">step</a>.
+            В нее передается два параметра. Если левый параметр меньше правого, то возвращается 0. В противном случае - 1. Используя
+            данную функцию с параметрами threshold и noise соответственно, мы получим нули, если noise меньше threshold, и 1 - больше. 
+            Мы можем записать поулченное значение в альфа канал результирующего цвета, чтобы получить прозрачные и непрозрачные области.
+        </p>
+
+        <pre><code class="glsl">uniform sampler2D mainTex;
+uniform sampler2D noiseTex;
+uniform float threshold;
+varying vec2 v2f_uv;
+
+void main() {
+  vec4 color = texture2D(mainTex, v2f_uv);
+  float noise = texture2D(noiseTex, v2f_uv).r;
+
+  color.a = step(threshold, noise);
+
+  gl_FragColor = color;
+}</code></pre>
+
+        <p>
+            Однако, чтобы материал мог отображать прозрачность, необходимо это указать при его создании. Установим
+            свойство transparent в true.
+        </p>
+
+        <pre><code class="language-javascript">const material = new THREE.ShaderMaterial({
+  vertexShader,
+  fragmentShader,
+  transparent: true,
+  uniforms: {
+    mainTex: {
+      value: mainTex,
+    },
+    noiseTex: {
+      value: noiseTex,
+    },
+    threshold: {
+      value: settings.threshold,
+    }
+  },
+});</code></pre>
+
+        <p>
+            Мы получили dissolve! Однако из-за жесткого отсечения видны некрасивые области.
+        </p>
+
+        <!-- Изображение жестого dissolve -->
+        <div class="text-center mb-4">
+            <figure class="figure">
+                <img src="images/dissolve_hard.png" class="img-fluid rounded shadow">
+            </figure>
+        </div>
+
+        <p>
+            Чтобы это исправить, можно использовать функцию <a href="https://thebookofshaders.com/glossary/?search=smoothstep">smoothstep</a>,
+            которая принимает три параметра: значение, ниже которого возвращается 0, значение, до которого возвращается "как есть" и после 
+            которого возвращается 1 и само значение. Перепишем шейдер с использованием этой функции, используя в качестве первого
+            и второго значения threshold измененный на smoothness (также необходимо передать в шейдер).
+        </p>
+
+        <pre><code class="glsl">uniform sampler2D mainTex;
+uniform sampler2D noiseTex;
+uniform float threshold;
+uniform float smoothness;
+varying vec2 v2f_uv;
+
+void main() {
+  vec4 color = texture2D(mainTex, v2f_uv);
+  float noise = texture2D(noiseTex, v2f_uv).r;
+
+  color.a = smoothstep(threshold * (1.0 - smoothness), threshold * (1.0 + smoothness), noise);
+
+  gl_FragColor = color;
+}</code></pre>
+
+        <p>
+            Регулируя smoothness и threshold можно добиться красивого эффекта растворения книги в пространстве, чем-то
+            напоминающий сгорание в огне.
+        </p>
+
+        <!-- Глава -->
+        <h2 class="mt-4 mb-3">10. Практика с Color Edge Dissolve</h2>
+        <p>
+            Как можно улучшить эффект, чтобы он больше напоминал сгорание? Самое простое - раскрашивать обаласти растворения
+            в красноватый оттенок. Это задание я предлагаю выполнить самостоятельно.
+        </p>
+
+        <iframe src="https://codesandbox.io/embed/tv9msn?view=preview&fontSize=12"
+            style="width:100%; height: 500px; border:0; border-radius: 4px; overflow:hidden;"
+            title="Color Dissolve Shader"
+            allow="accelerometer; ambient-light-sensor; camera; encrypted-media; geolocation; gyroscope; hid; microphone; midi; payment; usb; vr; xr-spatial-tracking"
+            sandbox="allow-forms allow-modals allow-popups allow-presentation allow-same-origin allow-scripts"
+        ></iframe>
+
+        <p>
+            Для этого перейдите в предыдущий SandBox и сделайте Fork. Добавьте следующие строчки в App.js:
+        </p>
+
+        <pre><code class="language-javascript">const settings = {
+  threshold: 0.4,
+  smoothness: 0.2,
+  tint: "#FF8C00",
+};
+...
+const material = new THREE.ShaderMaterial({
+  vertexShader,
+  fragmentShader,
+  transparent: true,
+  uniforms: {
+    mainTex: {
+      value: mainTex,
+    },
+    noiseTex: {
+      value: noiseTex,
+    },
+    threshold: {
+      value: settings.threshold,
+    },
+    smoothness: {
+      value: settings.smoothness,
+    },
+    tint: {
+      value: new THREE.Color(settings.tint),
+    },
+  },
+});
+...
+gui.addColor(settings, "tint").onChange((value) => {
+  material.uniforms.tint.value = new THREE.Color(value);
+});</code></pre>
+        <p>
+            После чего перейдите в fragmentShader.
+        </p>
+
+        <p>
+            Поскольу для окрашивания области вам нужно только три канала R, G, B, то вы можете извлечь из color их и записать обратно:
+        </p>
+
+        <pre><code class="glsl">vec3 tintColor = color.rgb;
+// окрашиваем tintColor
+color.rgb = tintColor;</code></pre>
+
+        <p>
+            Окрасить можно и домножением tintColor на tint (который нужно объявить как uniform), однако тогда граница цвета
+            получится жесткой. Предлагаю поэкспериментировать над тем, как можно сделать границу мягкой. Если возникнут сложности, откройте подсказку.
+            Если реализовать не получится, откройте SandBox и изучите готовый fragmentShader.
+        </p>
+
+        <details class="mb-3">
+            <summary><strong>Подсказка</strong></summary>
+            <div class="mt-2">
+                Для смешивания цвета используйте функцию <a href="https://thebookofshaders.com/glossary/?search=mix">mix</a>.
+            </div>
+        </details>
+
+        <!-- Глава -->
+        <h2 class="mt-4 mb-3">11. Что дальше?</h2>
+        <p>
+            Тема шейдеров глубока, сложно, но оттого еще более интересна. Шейдеры позволяют создавать уникальные
+            визуальные эффекты, стилизовать ваши проекты и сайты.
+        </p>
+
+        <p>
+            Если вам интересна тема и вы бы хотели себя попробовать в шейдерах не только под веб, то я бы рекомендовал
+            начать с Unity Shader Graph или Unreal Shader Graph - это визуальные среды для создания шейдеров. Они позволяют
+            программировать шейдеры нодами и видеть промежуточные этапы. 
+        </p>
+
+        <p>
+            Кроме этого, я бы порекомендовал канал на YouTube <a href="https://www.youtube.com/@Acerola_t">Acerola</a>, на котором вы можете найти раскрытие большого количества
+            разнообразных практик создания шейдеров.
+        </p>
+
+        <p>
+            Если вы бы хотели еще больше погрузиться в разработку шейдеров не только вершинных и фрагментных, есть канал 
+            <a href="https://www.youtube.com/@NedMakesGames">Ned Makes Games</a>, где показываются и рассказываются сложные вещи
+            доступным языком.
+        </p>
+
+        <p>
+            Из литературы я бы посоветовал сайты:
+        </p>
+        <ol>
+            <li>
+                <a href="https://thebookofshaders.com/">The Book of Shaders</a> - разработка шейдеров на GLSL; 
+            </li>
+            <li>
+                <a href="https://learnopengl.com/Introduction">Learn OpenGL</a> - тоже GLSL;
+            </li>
+            <li>
+                <a href="https://godotshaders.com/shader/">Godot Shaders</a> - потрясающие шейдеры на Godot Shading Language. 
+                    Можно найти множество примеров и переписать их на тот язык, который вам нравится;
+            </li>
+            <li>
+                <a href="https://catlikecoding.com/unity/tutorials/">Catlike Coding</a> - публикуются разборы по различным
+                практикам создания шейдеров на Unity;
+            </li>
+            <li>
+                <a href="https://iquilezles.org/">Inigo Quilez</a> - мастадонт из мира шейдеров. Публикует множество полезных
+                техник;
+            </li>
+            <li>
+                <a href="https://www.scratchapixel.com/">Scratch a pixel</a> - множество уроков по шейдерам с нуля до профи, где
+                разбираются не только шейдеры, но и вообще компьютерная графика;
+            </li>
+            <li>
+                <a href="https://blog.maximeheckel.com/#articles">Maximeheckel blog</a> - three.js, шейдеры, постпроцессинг.
+            </li>
+        </ol>
+
+        <p>
+            Удачи!
+        </p>
     </div>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
